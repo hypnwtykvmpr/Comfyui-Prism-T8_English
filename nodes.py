@@ -112,8 +112,8 @@ class PrismNativeSampler:
         from comfy.utils import ProgressBar
         from .prism.runtime import run
         settings = validate_generation(settings)
-        management.unload_all_models()
-        management.soft_empty_cache()
+        # Do not evict unrelated models to force Prism into a shared GPU.
+        # Runtime preflight and each transfer refuse insufficient headroom.
         progress = ProgressBar(settings["steps"])
         def callback(step, total):
             management.throw_exception_if_processing_interrupted()

@@ -21,13 +21,14 @@ from safetensors.torch import save_file
 
 from prism.format import Component
 from prism.loading import load_component
+from prism.capacity import guarded_to
 from prism.runtime import crop_reference
 from diagnose_vae_precision import file_hash, latent_distribution, decode_case, compare_decodes
 
 
 def encode_reference(component, inputs, precision, device):
     dtype = torch.bfloat16 if precision == "bf16" else torch.float32
-    model = load_component(component, dtype=dtype).to(device)
+    model = guarded_to(load_component(component, dtype=dtype), device)
     model.disable_tiling()
     start = time.monotonic()
     try:

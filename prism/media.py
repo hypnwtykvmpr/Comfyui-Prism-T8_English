@@ -8,6 +8,8 @@ import wave
 
 import torch
 
+from .process import popen_hidden
+
 
 def save_video(frames, audio, fps, path, interrupt=None):
     executable = shutil.which("ffmpeg")
@@ -42,7 +44,7 @@ def save_video(frames, audio, fps, path, interrupt=None):
                    "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p", "-af", "apad", "-c:a", "aac", "-b:a", "192k",
                    "-movflags", "+faststart", "-shortest", str(temporary)]
         with open(folder / "ffmpeg.log", "wb") as log:
-            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
+            process = popen_hidden(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
             try:
                 for frame in frames:
                     if interrupt:

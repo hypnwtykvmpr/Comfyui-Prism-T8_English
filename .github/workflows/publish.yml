@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   publish:
+    if: github.repository == 'T8mars/Comfyui-Prism-T8'
     name: Publish Prism T8
     runs-on: ubuntu-latest
     steps:

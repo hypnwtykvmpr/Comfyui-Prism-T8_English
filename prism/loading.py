@@ -5,6 +5,7 @@ import torch
 
 from .format import Component, TensorReader
 from .quantization import ConvRotLinear, decode_config
+from .capacity import require_commit, GIB
 
 
 def make_module(component):
@@ -43,6 +44,7 @@ def set_tensor(model, key, tensor, dtype):
     if current.is_floating_point() and not tensor.is_floating_point():
         raise ValueError(f"Unmarked integer tensor for floating point parameter {key}")
     if tensor.is_floating_point():
+        require_commit(tensor.numel() * 16)
         # Keep the official FP32 timestep path explicit across autocast versions.
         target_dtype = torch.float32 if key.startswith(("time_embedding.", "time_projection.")) else dtype
         if tensor.dtype != target_dtype:
@@ -75,6 +77,7 @@ def materialize_nonpersistent(model, kind):
 def load_component(component, dtype=torch.bfloat16, backend="portable", interrupt=None):
     if not isinstance(component, Component):
         component = Component.inspect(component)
+    require_commit(2 * component.path.stat().st_size + GIB)
     # No large randomly initialized copy. Native configs, no from_pretrained loader.
     with torch.device("meta"):
         model = make_module(component)

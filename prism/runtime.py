@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import warnings
 
 import torch
 from PIL import Image
@@ -10,6 +11,7 @@ from PIL import Image
 from .format import COMPONENTS, Component, load_tokenizer
 from .loading import load_component
 from .offload import FrozenOffloadModule, ManagedTransformer
+from .capacity import preflight, workspace_estimate, WORKSPACE
 
 
 def check_bundle(parts):
@@ -74,6 +76,7 @@ def run(parts, image, settings, sparse=None, device=None, callback=None, interru
     parts = check_bundle(parts)
     settings = validate_generation(settings)
     sparse = validate_sparse({} if sparse is None else sparse)
+    preflight(parts, settings, device or "cuda")
     if fsdp_mesh is not None:
         if any(c.metadata.get("prism.precision") == "int8_convrot" for c in parts.values()):
             raise ValueError("FSDP requires BF16 standalone components: INT8 buffers would otherwise be replicated, not sharded. Use SP + block offload for INT8.")
@@ -95,6 +98,7 @@ def run(parts, image, settings, sparse=None, device=None, callback=None, interru
         image = crop_reference(image, settings["height"], settings["width"])
     modules = {}
     managed = None
+    workspace_token = WORKSPACE.set(workspace_estimate(settings))
     try:
         for kind, component in parts.items():
             if interrupt:
@@ -143,11 +147,15 @@ def run(parts, image, settings, sparse=None, device=None, callback=None, interru
             raise RuntimeError("Prism generated non-finite video/audio")
         return frames, {"waveform": waveform, "sample_rate": pipe.audio_sample_rate}, settings["fps"]
     finally:
-        if managed is not None:
-            if fsdp_mesh is None:
-                managed.close()
-        for module in modules.values():
-            if fsdp_mesh is None or module is modules.get("video_vae") or module is modules.get("audio_vae") or module is modules.get("text_encoder"):
-                module.to("cpu")
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        WORKSPACE.reset(workspace_token)
+        cleanup = []
+        if managed is not None and fsdp_mesh is None:
+            cleanup.append(managed.close)
+        cleanup.extend(module.cpu for module in modules.values() if isinstance(module, FrozenOffloadModule))
+        # Each owner restores retained CPU storage, not a new GPU-to-CPU copy.
+        # One cleanup failure must not hide the original refusal or skip others.
+        for action in cleanup:
+            try:
+                action()
+            except Exception as error:
+                warnings.warn(f"Prism owned-model cleanup failed: {error}", RuntimeWarning)

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 from prism.format import Component, load_tokenizer
 from prism.loading import load_component
+from prism.capacity import guarded_to
 
 
 def main():
@@ -26,7 +27,7 @@ def main():
             continue
         start = time.monotonic()
         component = Component.inspect(folder / manifest["components"][kind]["file"], kind)
-        model = load_component(component, dtype=torch.float32 if kind == "audio_vae" else torch.bfloat16).cuda()
+        model = guarded_to(load_component(component, dtype=torch.float32 if kind == "audio_vae" else torch.bfloat16), "cuda")
         with torch.inference_mode():
             if kind == "text_encoder":
                 tokenizer = load_tokenizer(component)

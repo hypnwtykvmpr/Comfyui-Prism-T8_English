@@ -4,6 +4,8 @@ import inspect
 import torch
 from torch import nn
 
+from .capacity import check_transfer
+
 
 class _FrozenCPUState:
     """Immutable CPU storage owners plus original parameter/buffer alias groups."""
@@ -88,6 +90,7 @@ class FrozenOffloadModule(nn.Module):
         if device.type == "cpu":
             self.cpu_state.restore()
         else:
+            check_transfer(self.module, device)
             self.module.to(device, non_blocking=non_blocking)
             self.cpu_state.rebind_aliases()
         self.current_device = device
@@ -122,6 +125,9 @@ class ManagedTransformer(nn.Module):
         self.handles = []
         self.cpu_state = {}
         self.fused_signatures = {}
+        # Hold the original CPU storages for allocation-free cleanup in every
+        # offload mode; never copy a rejected GPU model back into exhausted RAM.
+        self.original_cpu_state = _FrozenCPUState(bridge) if fixed_device is None else None
         if block_offload:
             self.fused_signatures = {id(block): inspect.signature(block.forward) for block in bridge.fusion_blocks}
             blocks = list(bridge.fusion_blocks) + list(bridge.remaining_video_blocks)
@@ -155,8 +161,10 @@ class ManagedTransformer(nn.Module):
                 # fused block would also read and upload the idle primary expert.
                 for child in (module.audio_block, module.a2v_conditioner, module.v2a_conditioner):
                     if child is not None:
+                        check_transfer(child, self.device)
                         child.to(self.device)
                 return
+        check_transfer(module, self.device)
         module.to(self.device)
 
     def _post(self, module, args, result):
@@ -179,6 +187,7 @@ class ManagedTransformer(nn.Module):
             return self
         self.device = device
         if not self.block_offload or device.type == "cpu":
+            check_transfer(self.bridge, device)
             self.bridge.to(device, *args, **kwargs)
         else:
             # DiT blocks remain on CPU. Permanent embeddings/heads/patch convolutions
@@ -189,8 +198,10 @@ class ManagedTransformer(nn.Module):
                 if name == "video_dit_2":
                     for child_name, child in module.named_children():
                         if child_name != "blocks":
+                            check_transfer(child, device)
                             child.to(device, *args, **kwargs)
                 else:
+                    check_transfer(module, device)
                     module.to(device, *args, **kwargs)
         return self
 
@@ -198,16 +209,11 @@ class ManagedTransformer(nn.Module):
         return self.bridge(*args, **kwargs)
 
     def close(self):
-        for block in list(self.bridge.fusion_blocks) + list(self.bridge.remaining_video_blocks):
-            if id(block) in self.cpu_state:
-                self._restore(block)
-        if self.bridge.video_dit_2 is not None:
-            for block in self.bridge.video_dit_2.blocks:
-                if id(block) in self.cpu_state:
-                    self._restore(block)
-        self.to("cpu")
         for handle in self.handles:
             handle.remove()
         self.handles.clear()
+        if self.original_cpu_state is not None:
+            self.original_cpu_state.restore()
+        self.device = torch.device("cpu")
         self.cpu_state.clear()
         self.fused_signatures.clear()

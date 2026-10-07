@@ -7,6 +7,7 @@ import json
 import torch
 from torch import nn
 from torch.nn import functional as F
+from .capacity import check_conversion
 
 
 def best_group_size(features):
@@ -46,10 +47,12 @@ def quantize(weight, group_size=None, mseclip=False, device="cpu", rows=128):
     if group_size is None:
         raise ValueError("No eligible ConvRot group size")
     # Bound FP32 intermediates even for UMT5's largest matrices.
+    check_conversion(weight, device, rows)
     result = torch.empty(weight.shape, dtype=torch.int8)
     scales = torch.empty((weight.shape[0], 1), dtype=torch.float32)
     grid = torch.linspace(0.55, 1.0, 80).tolist() if mseclip else [1.0]
     for start in range(0, weight.shape[0], rows):
+        check_conversion(weight, device, rows)
         rotated = rotate(weight[start:start + rows].to(device), group_size)
         if not torch.isfinite(rotated).all():
             raise ValueError("Non-finite ConvRot weights after FP32 conversion/rotation")

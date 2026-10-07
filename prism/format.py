@@ -16,6 +16,7 @@ import torch
 from safetensors import safe_open
 
 from . import FORMAT_VERSION
+from .capacity import require_commit
 
 COMPONENTS = ("video_dit", "video_dit_2", "audio_dit", "dual_tower_bridge",
               "text_encoder", "video_vae", "audio_vae")
@@ -66,6 +67,9 @@ class TensorReader:
         if count == 0:
             return torch.empty(info["shape"], dtype=dtype)
         start, end = info["data_offsets"]
+        # Recheck live commit before materializing EACH tensor. Budget source,
+        # conversion and finite-check temporaries even for read-only mappings.
+        require_commit(4 * (end - start) + 8 * count)
         if self.copy:
             self._file.seek(self._data_start + start)
             data = bytearray(self._file.read(end - start))

@@ -20,6 +20,7 @@ from safetensors.torch import save_file
 
 from prism.format import Component, load_tokenizer
 from prism.loading import load_component
+from prism.capacity import guarded_to
 from prism.quantization import ConvRotLinear
 from diagnose_vae_precision import file_hash, tensor_stats
 
@@ -67,7 +68,7 @@ def embedding_metrics(candidate, reference, ids, mask):
 
 def encode_component(component, tokens, output, device, backend):
     start = time.monotonic()
-    model = load_component(component, dtype=torch.bfloat16, backend=backend).to(device)
+    model = guarded_to(load_component(component, dtype=torch.bfloat16, backend=backend), device)
     torch.cuda.reset_peak_memory_stats(device)
     results, embeddings = {}, {}
     try:

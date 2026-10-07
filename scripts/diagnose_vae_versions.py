@@ -96,6 +96,7 @@ def worker(args):
     from safetensors.torch import load_file, save_file
     from prism.format import Component, TensorReader
     from prism.loading import load_component
+    from prism.capacity import guarded_to
     from diffusers import AutoencoderKLWan
     from diagnose_vae_precision import tensor_stats, save_media, latent_distribution, decoded_distribution
 
@@ -182,7 +183,7 @@ def worker(args):
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         dtype = torch.bfloat16
-        model = load_component(component, dtype=dtype).to(device)
+        model = guarded_to(load_component(component, dtype=dtype), device)
         if hasattr(model, "disable_tiling"):
             model.disable_tiling()
             model.disable_slicing()

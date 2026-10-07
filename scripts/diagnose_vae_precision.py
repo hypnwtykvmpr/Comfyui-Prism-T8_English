@@ -25,6 +25,7 @@ from safetensors.torch import save_file
 
 from prism.format import Component, TensorReader
 from prism.loading import load_component
+from prism.capacity import guarded_to
 
 
 def file_hash(path):
@@ -144,7 +145,7 @@ def decode_case(component, latents, precision, folder, device, settings):
     from diffusers.video_processor import VideoProcessor
     dtype = torch.bfloat16 if precision == "bf16" else torch.float32
     start = time.monotonic()
-    model = load_component(component, dtype=dtype).to(device)
+    model = guarded_to(load_component(component, dtype=dtype), device)
     video_input = latents.to(device)  # Identical FP32 values; no BF16 pre-cast or second denormalization.
     torch.cuda.reset_peak_memory_stats(device)
     try:

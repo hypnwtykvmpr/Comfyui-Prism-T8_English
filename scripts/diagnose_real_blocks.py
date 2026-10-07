@@ -26,6 +26,7 @@ from safetensors.torch import save_file
 
 from prism.format import Component, COMPONENTS, TensorReader, load_tokenizer
 from prism.loading import load_component, set_tensor
+from prism.capacity import guarded_to
 from prism.quantization import ConvRotLinear, decode_config
 
 BLOCKS = (0, 19, 39)
@@ -453,7 +454,7 @@ def compare(args):
             reference = None
             for variant in ["bf16"] + [name for name in variants if name != "bf16"]:
                 print(f"compare: block {index}, {variant} (ONE block only)", flush=True)
-                block = load_one_block(quant, baseline, index, variant, args.int8_backend).to(args.device)
+                block = guarded_to(load_one_block(quant, baseline, index, variant, args.int8_backend), args.device)
                 try:
                     with torch.inference_mode(), dense_attention("sdpa"):
                         result = block(**arguments).detach().cpu()
